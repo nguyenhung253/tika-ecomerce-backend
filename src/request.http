@@ -1,0 +1,21 @@
+
+### Sign Up
+POST http://localhost:3000/api/v1/auth/signup
+Content-Type: application/json
+
+{
+    "name": "nguyenhung",
+    "email": "nguyenhung@gmail.com",
+    "password": "abcd12345"
+}
+
+###
+
+### Login
+POST http://localhost:3000/api/v1/auth/login
+Content-Type: application/json
+
+{
+    "email": "nguyenhung@gmail.com",
+    "password": "abcd12345"
+}
