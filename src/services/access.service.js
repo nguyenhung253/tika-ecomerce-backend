@@ -1,6 +1,7 @@
 "use strict";
 const bcrypt = require("bcrypt");
 const User = require("../models/user.model");
+const Shop = require("../models/shop.model");
 const {
   BadRequestError,
   ConflictRequestError,
@@ -11,9 +12,14 @@ const {
 } = require("../utils/authToken");
 const TokenService = require("./token.service");
 const { parseTokenExpiry } = require("../utils/tokenExpiry");
-const VALID_ROLES = ["shop", "customer", "admin"];
+
+const USER_ROLES = ["customer", "admin"];
+const ACCOUNT_TYPES = ["user", "shop"];
 
 class AccessService {
+  /**
+   * Sign up for User (customer/admin)
+   */
   static signUp = async ({ name, email, password, role = "customer" }) => {
     // Check if user already exists
     const existingUser = await User.findOne({ email }).lean();
@@ -22,8 +28,10 @@ class AccessService {
     }
 
     // Validate role
-    if (!VALID_ROLES.includes(role)) {
-      throw new BadRequestError("Invalid role");
+    if (!USER_ROLES.includes(role)) {
+      throw new BadRequestError(
+        "Invalid role. Use signUpShop for shop registration.",
+      );
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -41,6 +49,7 @@ class AccessService {
       id: newUser._id,
       email: newUser.email,
       role: newUser.role,
+      accountType: "user",
     };
 
     // Generate tokens
@@ -71,23 +80,39 @@ class AccessService {
     };
   };
 
-  static login = async ({ email, password }) => {
-    const user = await User.findOne({ email });
-    if (!user) {
-      throw new BadRequestError("Email or password incorrect");
+  /**
+   * Sign up for Shop
+   */
+  static signUpShop = async ({
+    name,
+    email,
+    password,
+    description = "",
+    address = "",
+  }) => {
+    // Check if shop already exists
+    const existingShop = await Shop.findOne({ email }).lean();
+    if (existingShop) {
+      throw new ConflictRequestError("Shop already exists");
     }
 
-    // Check password
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      throw new BadRequestError("Email or password incorrect");
-    }
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // Create new shop
+    const newShop = await Shop.create({
+      name,
+      email,
+      password: passwordHash,
+      description,
+      address,
+    });
 
     // Create token payload
     const payload = {
-      id: user._id,
-      email: user.email,
-      role: user.role,
+      id: newShop._id,
+      email: newShop.email,
+      role: "shop",
+      accountType: "shop",
     };
 
     // Generate tokens
@@ -99,17 +124,74 @@ class AccessService {
     const expiresAt = parseTokenExpiry(refreshTokenExpire);
 
     await TokenService.saveRefreshToken({
-      userId: user._id,
+      userId: newShop._id,
       refreshToken,
       expiresAt,
     });
 
     return {
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
+      shop: {
+        id: newShop._id,
+        name: newShop.name,
+        email: newShop.email,
+      },
+      tokens: {
+        accessToken,
+        refreshToken,
+      },
+    };
+  };
+
+  static login = async ({ email, password, accountType = "user" }) => {
+    let account;
+    let role;
+
+    if (accountType === "shop") {
+      account = await Shop.findOne({ email });
+      role = "shop";
+    } else {
+      account = await User.findOne({ email });
+      role = account?.role;
+    }
+
+    if (!account) {
+      throw new BadRequestError("Email or password incorrect");
+    }
+
+    // Check password
+    const isMatch = await bcrypt.compare(password, account.password);
+    if (!isMatch) {
+      throw new BadRequestError("Email or password incorrect");
+    }
+
+    // Create token payload
+    const payload = {
+      id: account._id,
+      email: account.email,
+      role: role,
+      accountType: accountType,
+    };
+
+    // Generate tokens
+    const accessToken = generateAccessToken(payload);
+    const refreshToken = generateRefreshToken(payload);
+
+    // Save refresh token to database
+    const refreshTokenExpire = process.env.REFRESH_TOKEN_EXPIRE || "7d";
+    const expiresAt = parseTokenExpiry(refreshTokenExpire);
+
+    await TokenService.saveRefreshToken({
+      userId: account._id,
+      refreshToken,
+      expiresAt,
+    });
+
+    return {
+      [accountType]: {
+        id: account._id,
+        name: account.name,
+        email: account.email,
+        role: role,
       },
       tokens: {
         accessToken,
@@ -137,10 +219,24 @@ class AccessService {
   };
 
   // Refresh access token
-  static refreshToken = async ({ userId, oldRefreshToken }) => {
-    const user = await User.findById(userId);
-    if (!user) {
-      throw new BadRequestError("User not found");
+  static refreshToken = async ({
+    userId,
+    oldRefreshToken,
+    accountType = "user",
+  }) => {
+    let account;
+    let role;
+
+    if (accountType === "shop") {
+      account = await Shop.findById(userId);
+      role = "shop";
+    } else {
+      account = await User.findById(userId);
+      role = account?.role;
+    }
+
+    if (!account) {
+      throw new BadRequestError("Account not found");
     }
 
     // Blacklist old refresh token
@@ -148,9 +244,10 @@ class AccessService {
 
     // Create new token payload
     const payload = {
-      id: user._id,
-      email: user.email,
-      role: user.role,
+      id: account._id,
+      email: account.email,
+      role: role,
+      accountType: accountType,
     };
 
     // Generate new tokens
@@ -162,7 +259,7 @@ class AccessService {
     const expiresAt = parseTokenExpiry(refreshTokenExpire);
 
     await TokenService.saveRefreshToken({
-      userId: user._id,
+      userId: account._id,
       refreshToken,
       expiresAt,
     });

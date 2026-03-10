@@ -1,22 +1,25 @@
 
 ### Sign Up
 POST http://localhost:8386/api/v1/auth/signup
+x-api-key:92be2420d1ada46d71fa2def92ab2809d8d223af16e90bedb4e4a12355a3e6f8
 Content-Type: application/json
 
 {
-    "name": "nguyenhung",
-    "email": "nguyenhung@gmail.com",
-    "password": "abcd12345"
+    "name": "vannguyet",
+    "email": "vannguyet253@gmail.com",
+    "password": "abcd12345",
+    "role": "shop"
 }
 
 ###
 
 ### Login
 POST http://localhost:8386/api/v1/auth/login
+x-api-key:92be2420d1ada46d71fa2def92ab2809d8d223af16e90bedb4e4a12355a3e6f8
 Content-Type: application/json
 
 {
-    "email": "nguyenhung@gmail.com",
+    "email": "vannguyet253@gmail.com",
     "password": "abcd12345"
 }
 
@@ -24,7 +27,8 @@ Content-Type: application/json
 
 ### Logout (Single Device)
 POST http://localhost:8386/api/v1/auth/logout
-x-refresh-token: YOUR_REFRESH_TOKEN_HERE
+x-api-key:92be2420d1ada46d71fa2def92ab2809d8d223af16e90bedb4e4a12355a3e6f8
+x-refresh-token:eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY5ODAyMzczNjkzYmMxZDU4MTcwMDRkNiIsImVtYWlsIjoibmd1eWVuaHVuZzI1M0BnbWFpbC5jb20iLCJyb2xlIjoiY3VzdG9tZXIiLCJpYXQiOjE3NzAwMDU0MjIsImV4cCI6MTc3MDYxMDIyMn0.Iad95Hrm8AAwqqq7rszu0WlKuWDAm-IprG3dXYB7mFc
 
 ###
 
@@ -45,8 +49,8 @@ x-refresh-token: YOUR_REFRESH_TOKEN_HERE
 ### Create Product - Electronics
 POST http://localhost:8386/api/v1/product
 Content-Type: application/json
-x-api-key: YOUR_API_KEY_HERE
-Authorization: Bearer YOUR_ACCESS_TOKEN_HERE
+x-api-key: 92be2420d1ada46d71fa2def92ab2809d8d223af16e90bedb4e4a12355a3e6f8
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY5ODAyNzIzYjI2ZWM1MmU0YzE5MjZhNSIsImVtYWlsIjoidmFubmd1eWV0MjUzQGdtYWlsLmNvbSIsInJvbGUiOiJzaG9wIiwiaWF0IjoxNzcwMzY5NzI3LCJleHAiOjE3NzAzNzA2Mjd9.Eyco84PhbKnFgkiShQ2hKe6kXSihiOQ2ksDKpadZOAo
 
 {
     "product_name": "iPhone 15 Pro Max",
@@ -67,8 +71,8 @@ Authorization: Bearer YOUR_ACCESS_TOKEN_HERE
 ### Create Product - Clothing
 POST http://localhost:8386/api/v1/product
 Content-Type: application/json
-x-api-key: YOUR_API_KEY_HERE
-Authorization: Bearer YOUR_ACCESS_TOKEN_HERE
+x-api-key: 92be2420d1ada46d71fa2def92ab2809d8d223af16e90bedb4e4a12355a3e6f8
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY5ODAyNzIzYjI2ZWM1MmU0YzE5MjZhNSIsImVtYWlsIjoidmFubmd1eWV0MjUzQGdtYWlsLmNvbSIsInJvbGUiOiJzaG9wIiwiaWF0IjoxNzcwMDA2MzI0LCJleHAiOjE3NzAwMDcyMjR9.WDnsDrNdRoRSX6zFs_8klF9DJj1_MPhN4DLhuJd1GFQ
 
 {
     "product_name": "Nike Air Max T-Shirt",

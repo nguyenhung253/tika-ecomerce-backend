@@ -21,14 +21,33 @@ class AccessController {
     return new CREATED({ message: "Registered OK!", data: result }).send(res);
   });
 
+  static signUpShop = asyncHandler(async (req, res, next) => {
+    const { name, email, password, description, address } = req.body;
+
+    if (!email || !password || !name) {
+      throw new BadRequestError("Name, email and password are required");
+    }
+
+    const result = await AccessService.signUpShop({
+      name,
+      email,
+      password,
+      description,
+      address,
+    });
+    return new CREATED({ message: "Shop registered OK!", data: result }).send(
+      res,
+    );
+  });
+
   static login = asyncHandler(async (req, res, next) => {
-    const { email, password } = req.body;
+    const { email, password, accountType } = req.body;
 
     if (!email || !password) {
       throw new BadRequestError("Email and password are required");
     }
 
-    const result = await AccessService.login({ email, password });
+    const result = await AccessService.login({ email, password, accountType });
     return new SuccessResponse({
       message: "Login successful",
       data: result,
@@ -57,11 +76,13 @@ class AccessController {
 
   static refreshToken = asyncHandler(async (req, res, next) => {
     const userId = req.user.id;
+    const accountType = req.user.accountType || "user";
     const oldRefreshToken = req.refreshToken;
 
     const result = await AccessService.refreshToken({
       userId,
       oldRefreshToken,
+      accountType,
     });
     return new SuccessResponse({
       message: "Token refreshed successfully",

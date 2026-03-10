@@ -10,6 +10,7 @@ const router = express.Router();
 
 // Public routes
 router.post("/signup", AccessController.signUp);
+router.post("/signup/shop", AccessController.signUpShop);
 router.post("/login", AccessController.login);
 
 // Protected routes - require authentication

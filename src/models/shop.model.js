@@ -1,9 +1,10 @@
 "use strict";
 const mongoose = require("mongoose");
 
-const DOCUMENT_NAME = "User";
-const COLLECTION_NAME = "Users";
-const userSchema = new mongoose.Schema(
+const DOCUMENT_NAME = "Shop";
+const COLLECTION_NAME = "Shops";
+
+const shopSchema = new mongoose.Schema(
   {
     name: {
       type: String,
@@ -38,13 +39,27 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    role: {
+    // Shop-specific fields
+    description: {
       type: String,
-      enum: ["customer", "admin"],
-      default: "customer",
+      default: "",
+    },
+    address: {
+      type: String,
+      default: "",
+    },
+    rating: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 5,
+    },
+    totalProducts: {
+      type: Number,
+      default: 0,
     },
   },
   { timestamps: true, collection: COLLECTION_NAME },
 );
 
-module.exports = mongoose.model(DOCUMENT_NAME, userSchema);
+module.exports = mongoose.model(DOCUMENT_NAME, shopSchema);

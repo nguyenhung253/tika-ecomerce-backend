@@ -1,4 +1,3 @@
-
 # Dependencies
 node_modules/
 
@@ -6,6 +5,7 @@ node_modules/
 .env
 .env.local
 .env.*.local
+.env.production
 
 # Logs
 logs/
@@ -33,6 +33,35 @@ coverage/
 *.tmp
 *.temp
 
-LOGOUT_FLOW.md 
+# Documentation (dev only)
+LOGOUT_FLOW.md
+BOOK_PRODUCT_GUIDE.md
+CART_SERVICE_GUIDE.md
+CHECKOUT_SERVICE_GUIDE.md
+DISCOUNT_SERVICE_GUIDE.md
+ECOMMERCE_DEVELOPMENT_MINDSET.md
+PRODUCT_SERVICE_GUIDE.md
+PROJECT_CONTEXT.md
+SOLID_AND_DESIGN_PATTERNS.md
+DEPLOYMENT_GUIDE.md
 
+# Test files
 request.http
+
+# Setup scripts (already in EC2)
+setup-ec2.sh
+
+# PM2 ecosystem (use in EC2 only)
+ecosystem.config.js
+
+# Nginx config (use in EC2 only)
+nginx.conf
+
+# Docker compose (use in EC2 only)
+docker-compose.yml
+
+# Deployment script
+deploy.sh
+
+
+.kiro
