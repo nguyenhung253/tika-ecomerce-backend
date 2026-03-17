@@ -12,7 +12,16 @@ Product (Base class - Chứa logic chung)
 const { BadRequestError } = require("../helpers/error.response");
 const { clothing, product, electronic } = require("../models/product.model");
 const { insertInventory } = require("../models/repositories/inventory.repo");
-const { findAllDraftShop } = require("../models/repositories/product.repo");
+const {
+  findAllDraftShop,
+  findAllProducts: findAllProductsRepo,
+  findAllPublishedShop: findAllPublishedShopRepo,
+  searchProductByUser: searchProductByUserRepo,
+  findProduct: findProductRepo,
+  updateProductById: updateProductByIdRepo
+} = require("../models/repositories/product.repo");
+  updateProductById,
+} = require("../models/repositories/product.repo");
 class ProductFactory {
   static async createProduct(type, payload) {
     switch (type) {
@@ -28,6 +37,47 @@ class ProductFactory {
   static async findAllDraftForShop({ product_shop, limit = 50, skip = 0 }) {
     const query = [product_shop, (isDraft = true)];
     return await findAllDraftShop({ query, limit, skip });
+  }
+
+  static async findAllProducts(query) {
+    return await findAllProductsRepo({
+      limit: +query.limit || 50,
+      sort: query.sort || "ctime",
+      page: +query.page || 1,
+      filter: { isPublished: true },
+    });
+  }
+
+  static async findAllPublishedForShop({ product_shop, limit = 50, skip = 0 }) {
+    const query = { product_shop, isPublished: true };
+    return await findAllPublishedShopRepo({ query, limit, skip });
+  }
+
+  static async searchProducts({ keySearch }) {
+    return await searchProductByUserRepo({ keySearch });
+  }
+
+  static async findProduct({ product_id }) {
+    return await findProductRepo({ 
+      product_id, 
+      unSelect: ['__v', 'product_variations'] 
+    });
+  }
+
+  static async publishProductByShop({ product_shop, product_id }) {
+    return await updateProductByIdRepo({
+      productId: product_id,
+      bodyUpdate: { isPublished: true, isDraft: false },
+      model: product
+    });
+  }
+
+  static async unPublishProductByShop({ product_shop, product_id }) {
+    return await updateProductByIdRepo({
+      productId: product_id,
+      bodyUpdate: { isPublished: false, isDraft: true },
+      model: product
+    });
   }
 
   async createProduct(product_id) {
@@ -159,23 +209,19 @@ class Electronic extends Product {
     return newProduct;
   }
 
-  
   async updateProduct({ productId }) {
-   
     const objectParams = this;
 
-    
     if (objectParams.product_attribute) {
       await electronic.findByIdAndUpdate(
         productId,
-        objectParams.product_attribute, 
+        objectParams.product_attribute,
       );
     }
 
-    
     const updateProduct = await super.updateProduct({
       productId,
-      bodyUpdate: objectParams, 
+      bodyUpdate: objectParams,
     });
     return updateProduct;
   }

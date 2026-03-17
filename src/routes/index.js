@@ -13,5 +13,5 @@ router.use("/product", require("./product"));
 router.use("/discount", require("./discount"));
 router.use("/cart", require("./cart"));
 router.use("/checkout", require("./checkout"));
-
+router.use("/comment", require("./comment"));
 module.exports = router;
