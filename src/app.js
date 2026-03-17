@@ -6,24 +6,24 @@ const helmet = require("helmet");
 const compression = require("compression");
 
 // CORS configuration
-app.use(
-  cors({
-    origin: [
-      "http://localhost:5173",
-      "http://localhost:3000",
-      "https://tikashop.qzz.io",
-    ],
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "x-api-key",
-      "x-client-id",
-      "x-rtoken-id",
-    ],
-  }),
-);
+// app.use(
+//   cors({
+//     origin: [
+//       "http://localhost:5173",
+//       "http://localhost:3000",
+//       "https://tikashop.qzz.io",
+//     ],
+//     credentials: true,
+//     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+//     allowedHeaders: [
+//       "Content-Type",
+//       "Authorization",
+//       "x-api-key",
+//       "x-client-id",
+//       "x-rtoken-id",
+//     ],
+//   }),
+// );
 
 // Logging mọi request gửi đến server
 app.use(morgan("dev"));
