@@ -57,6 +57,56 @@ app.use(
   }),
 );
 
+// Health check endpoints (for Docker/orchestration)
+app.get("/health", async (req, res) => {
+  try {
+    // Check database connectivity
+    const mongoose = require("mongoose");
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        status: "unhealthy",
+        message: "Database not connected",
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Check Redis connectivity
+    const redisClient = require("./utils/index").getRedisClient?.();
+    if (redisClient) {
+      const pingResult = await redisClient.ping();
+      if (pingResult !== "PONG") {
+        return res.status(503).json({
+          status: "unhealthy",
+          message: "Redis not responding",
+          timestamp: new Date().toISOString(),
+        });
+      }
+    }
+
+    res.status(200).json({
+      status: "healthy",
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || "development",
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: "unhealthy",
+      message: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Liveness probe (simple version for quick checks)
+app.get("/", (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    message: "Ecommerce Backend API",
+    version: "1.0.0",
+  });
+});
+
 // Routes
 app.use("/api/v1", require("./routes"));
 
