@@ -89,7 +89,7 @@ jobs:
       - name: Deploy application on EC2
         uses: appleboy/ssh-action@v1.0.3
         env:
-          APP_IMAGE: ${{ needs.build.outputs.image_ref }}
+          APP_IMAGE: ${{ needs.build.outputs.image_ref || format('{0}/{1}:latest', env.REGISTRY, env.IMAGE_NAME) }}
           APP_PORT: ${{ env.APP_PORT }}
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
