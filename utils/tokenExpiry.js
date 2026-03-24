@@ -2,8 +2,7 @@
 
 /**
  * Parse token expiry string to Date object
- * @param {string} expiryString - Format: "7d", "24h", "30m"
- * @returns {Date} - Expiry date
+ *  Format: "7d", "24h", "30m"
  */
 const parseTokenExpiry = (expiryString) => {
   const expiresAt = new Date();

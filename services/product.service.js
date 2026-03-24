@@ -30,6 +30,81 @@ const {
 } = productRepo;
 
 class ProductFactory {
+  static buildPaginationInput(query = {}, defaultLimit = 20, maxLimit = 100) {
+    const page = Math.max(parseInt(query.page, 10) || 1, 1);
+    const rawLimit = parseInt(query.limit, 10) || defaultLimit;
+    const limit = Math.min(Math.max(rawLimit, 1), maxLimit);
+    return { page, limit };
+  }
+
+  static buildSortInput(query = {}, defaultSortBy = "createdAt") {
+    const allowedSortFields = [
+      "createdAt",
+      "updatedAt",
+      "product_price",
+      "product_name",
+    ];
+
+    const sortByField = allowedSortFields.includes(query.sortBy)
+      ? query.sortBy
+      : defaultSortBy;
+    const order =
+      String(query.order || "desc").toLowerCase() === "asc" ? 1 : -1;
+
+    return {
+      sortByField,
+      order,
+      sortBy: {
+        [sortByField]: order,
+      },
+    };
+  }
+
+  static buildPublicProductFilter(query = {}) {
+    const filter = { isPublished: true };
+
+    const type = query.type || query.category;
+    if (type) {
+      filter.product_type = type;
+    }
+
+    const minPrice = Number(query.minPrice);
+    const maxPrice = Number(query.maxPrice);
+    if (!Number.isNaN(minPrice) || !Number.isNaN(maxPrice)) {
+      filter.product_price = {};
+      if (!Number.isNaN(minPrice)) filter.product_price.$gte = minPrice;
+      if (!Number.isNaN(maxPrice)) filter.product_price.$lte = maxPrice;
+    }
+
+    if (query.shopId) {
+      filter.product_shop = query.shopId;
+    }
+
+    if (query.search) {
+      const keyword = String(query.search).trim();
+      if (keyword) {
+        filter.$or = [
+          { product_name: { $regex: keyword, $options: "i" } },
+          { product_description: { $regex: keyword, $options: "i" } },
+        ];
+      }
+    }
+
+    return filter;
+  }
+
+  static buildPaginationMeta({ page, limit, totalItems }) {
+    const totalPages = Math.max(Math.ceil(totalItems / limit), 1);
+    return {
+      totalItems,
+      page,
+      limit,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
+    };
+  }
+
   static async createProduct(type, payload) {
     switch (type) {
       case "Electronics":
@@ -41,21 +116,47 @@ class ProductFactory {
     }
   }
 
-  static async findAllDraftForShop({ product_shop, limit = 50, skip = 0 }) {
-    const query = { product_shop, isDraft: true };
-    return await findAllDraftShopRepo({ query, limit, skip });
+  static async findAllDraftForShop({ product_shop, query = {} }) {
+    const { page, limit } = ProductFactory.buildPaginationInput(query, 20, 100);
+    const { sortByField, order, sortBy } = ProductFactory.buildSortInput(
+      query,
+      "updatedAt",
+    );
+    const filterQuery = { product_shop, isDraft: true };
+    const result = await findAllDraftShopRepo({
+      query: filterQuery,
+      limit,
+      page,
+      sortBy,
+    });
+
+    return {
+      items: result.items,
+      pagination: ProductFactory.buildPaginationMeta({
+        page,
+        limit,
+        totalItems: result.totalItems,
+      }),
+      sort: {
+        sortBy: sortByField,
+        order: order === 1 ? "asc" : "desc",
+      },
+      filters: {
+        state: "draft",
+      },
+    };
   }
 
   static async findAllProducts(query) {
-    const page = +query.page || 1;
-    const limit = +query.limit || 50;
-    const sort = query.sort || "ctime";
+    const { page, limit } = ProductFactory.buildPaginationInput(query, 20, 100);
+    const { sortByField, order, sortBy } = ProductFactory.buildSortInput(query);
+    const filter = ProductFactory.buildPublicProductFilter(query);
 
     const cacheKey = CacheKeys.product.list({
       page,
       limit,
-      sort,
-      category: query.category || "",
+      sort: `${sortByField}:${order === 1 ? "asc" : "desc"}`,
+      category: query.type || query.category || "",
       search: query.search || "",
     });
 
@@ -64,19 +165,71 @@ class ProductFactory {
 
     const products = await findAllProductsRepo({
       limit,
-      sort,
       page,
-      filter: { isPublished: true },
+      sortBy,
+      filter,
     });
 
-    await setCache(cacheKey, products, DEFAULT_TTL);
+    const payload = {
+      items: products.items,
+      pagination: ProductFactory.buildPaginationMeta({
+        page,
+        limit,
+        totalItems: products.totalItems,
+      }),
+      sort: {
+        sortBy: sortByField,
+        order: order === 1 ? "asc" : "desc",
+      },
+      filters: {
+        search: query.search || "",
+        type: query.type || query.category || "",
+        minPrice:
+          query.minPrice !== undefined
+            ? Number(query.minPrice) || 0
+            : undefined,
+        maxPrice:
+          query.maxPrice !== undefined
+            ? Number(query.maxPrice) || 0
+            : undefined,
+        shopId: query.shopId || "",
+      },
+    };
 
-    return products;
+    await setCache(cacheKey, payload, DEFAULT_TTL);
+
+    return payload;
   }
 
-  static async findAllPublishedForShop({ product_shop, limit = 50, skip = 0 }) {
-    const query = { product_shop, isPublished: true };
-    return await findAllPublishedShopRepo({ query, limit, skip });
+  static async findAllPublishedForShop({ product_shop, query = {} }) {
+    const { page, limit } = ProductFactory.buildPaginationInput(query, 20, 100);
+    const { sortByField, order, sortBy } = ProductFactory.buildSortInput(
+      query,
+      "updatedAt",
+    );
+    const filterQuery = { product_shop, isPublished: true };
+    const result = await findAllPublishedShopRepo({
+      query: filterQuery,
+      limit,
+      page,
+      sortBy,
+    });
+
+    return {
+      items: result.items,
+      pagination: ProductFactory.buildPaginationMeta({
+        page,
+        limit,
+        totalItems: result.totalItems,
+      }),
+      sort: {
+        sortBy: sortByField,
+        order: order === 1 ? "asc" : "desc",
+      },
+      filters: {
+        state: "published",
+      },
+    };
   }
 
   static async searchProducts({ keySearch }) {

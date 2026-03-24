@@ -10,6 +10,7 @@ const {
   generateAccessToken,
   generateRefreshToken,
 } = require("../utils/authToken");
+const { sendHttpRequest } = require("../utils/httpClient");
 const TokenService = require("./token.service");
 const { parseTokenExpiry } = require("../utils/tokenExpiry");
 const otpGenerator = require("otp-generator");
@@ -34,8 +35,235 @@ const {
 } = require("../configs/auth.config");
 const USER_ROLES = ["customer", "admin"];
 const ACCOUNT_TYPES = ["user", "shop"];
+const GOOGLE_OAUTH_STATE_TTL_SECONDS = 600;
 
 class AccessService {
+  static getRequiredGoogleOAuthConfig() {
+    const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID || "";
+    const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET || "";
+    const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI || "";
+
+    if (!clientId || !clientSecret || !redirectUri) {
+      throw new BadRequestError(
+        "Google OAuth is not configured. Set GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, and GOOGLE_OAUTH_REDIRECT_URI",
+      );
+    }
+
+    return {
+      clientId,
+      clientSecret,
+      redirectUri,
+    };
+  }
+
+  static async buildAuthResponse({
+    account,
+    accountType = "user",
+    role,
+    key = "user",
+  }) {
+    const payload = {
+      id: account._id,
+      email: account.email,
+      role,
+      accountType,
+    };
+
+    const accessToken = generateAccessToken(payload);
+    const refreshToken = generateRefreshToken(payload);
+    const expiresAt = parseTokenExpiry(REFRESH_TOKEN_EXPIRE);
+
+    await TokenService.saveRefreshToken({
+      userId: account._id,
+      refreshToken,
+      expiresAt,
+    });
+
+    return {
+      [key]: {
+        id: account._id,
+        name: account.name,
+        email: account.email,
+        role,
+        avatar: account.oauth_profile_picture || account.avatar || "",
+      },
+      tokens: {
+        accessToken,
+        refreshToken,
+      },
+    };
+  }
+
+  static async getGoogleAuthorizationUrl() {
+    const { clientId, redirectUri } = AccessService.getRequiredGoogleOAuthConfig();
+    const state = crypto.randomBytes(16).toString("hex");
+
+    await setCache(
+      CacheKeys.auth.googleOAuthState(state),
+      { valid: true },
+      GOOGLE_OAUTH_STATE_TTL_SECONDS,
+    );
+
+    const queryParameters = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: "openid email profile",
+      access_type: "offline",
+      prompt: "consent",
+      state,
+    });
+
+    return {
+      authorizationUrl: `https://accounts.google.com/o/oauth2/v2/auth?${queryParameters.toString()}`,
+      state,
+    };
+  }
+
+  static async exchangeGoogleAuthorizationCodeForTokens(code) {
+    const { clientId, clientSecret, redirectUri } =
+      AccessService.getRequiredGoogleOAuthConfig();
+
+    const requestBody = new URLSearchParams({
+      code,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri,
+      grant_type: "authorization_code",
+    }).toString();
+
+    const tokenResponse = await sendHttpRequest({
+      url: "https://oauth2.googleapis.com/token",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Content-Length": Buffer.byteLength(requestBody),
+      },
+      body: requestBody,
+    });
+
+    if (tokenResponse.statusCode < 200 || tokenResponse.statusCode >= 300) {
+      throw new BadRequestError("Failed to exchange Google authorization code");
+    }
+
+    return tokenResponse.body;
+  }
+
+  static async getGoogleUserProfile(accessToken) {
+    const profileResponse = await sendHttpRequest({
+      url: "https://www.googleapis.com/oauth2/v2/userinfo",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (profileResponse.statusCode < 200 || profileResponse.statusCode >= 300) {
+      throw new BadRequestError("Failed to fetch Google user profile");
+    }
+
+    return profileResponse.body;
+  }
+
+  static async loginWithGoogle({ code, state }) {
+    if (!code) {
+      throw new BadRequestError("Google authorization code is required");
+    }
+
+    if (!state) {
+      throw new BadRequestError("Google OAuth state is required");
+    }
+
+    const stateKey = CacheKeys.auth.googleOAuthState(state);
+    const savedState = await getCache(stateKey);
+
+    if (!savedState?.valid) {
+      throw new BadRequestError("Google OAuth state is invalid or expired");
+    }
+
+    await deleteCache(stateKey);
+
+    const tokenPayload =
+      await AccessService.exchangeGoogleAuthorizationCodeForTokens(code);
+    const googleUserProfile = await AccessService.getGoogleUserProfile(
+      tokenPayload.access_token,
+    );
+
+    const normalizedEmail = String(googleUserProfile.email || "")
+      .trim()
+      .toLowerCase();
+
+    if (!normalizedEmail) {
+      throw new BadRequestError("Google account email is missing");
+    }
+
+    let foundUser =
+      (googleUserProfile.id &&
+        (await User.findOne({ google_id: googleUserProfile.id }))) ||
+      (await User.findOne({ email: normalizedEmail }));
+
+    if (!foundUser) {
+      const generatedPassword = await bcrypt.hash(
+        crypto.randomBytes(32).toString("hex"),
+        10,
+      );
+
+      foundUser = await User.create({
+        name: googleUserProfile.name || normalizedEmail.split("@")[0],
+        email: normalizedEmail,
+        password: generatedPassword,
+        role: "customer",
+        status: "active",
+        verified: true,
+        auth_provider: "google",
+        google_id: googleUserProfile.id || "",
+        oauth_profile_picture: googleUserProfile.picture || "",
+      });
+    } else {
+      let shouldSaveUser = false;
+
+      if (foundUser.auth_provider !== "google") {
+        foundUser.auth_provider = "google";
+        shouldSaveUser = true;
+      }
+
+      if (!foundUser.google_id && googleUserProfile.id) {
+        foundUser.google_id = googleUserProfile.id;
+        shouldSaveUser = true;
+      }
+
+      if (googleUserProfile.picture) {
+        foundUser.oauth_profile_picture = googleUserProfile.picture;
+        shouldSaveUser = true;
+      }
+
+      if (!foundUser.verified) {
+        foundUser.verified = true;
+        shouldSaveUser = true;
+      }
+
+      if (foundUser.status !== "active") {
+        foundUser.status = "active";
+        shouldSaveUser = true;
+      }
+
+      if (shouldSaveUser) {
+        await foundUser.save();
+      }
+    }
+
+    logAuditEvent("auth.google.login.success", {
+      userId: String(foundUser._id),
+      email: normalizedEmail,
+    });
+
+    return AccessService.buildAuthResponse({
+      account: foundUser,
+      accountType: "user",
+      role: foundUser.role,
+      key: "user",
+    });
+  }
+
   static getLoginFailKeys({ accountType, email }) {
     return {
       counterKey: CacheKeys.auth.loginFailCounter(accountType, email),
@@ -109,39 +337,12 @@ class AccessService {
       role,
     });
 
-    // Create token payload
-    const payload = {
-      id: newUser._id,
-      email: newUser.email,
-      role: newUser.role,
+    return AccessService.buildAuthResponse({
+      account: newUser,
       accountType: "user",
-    };
-
-    // Generate tokens
-    const accessToken = generateAccessToken(payload);
-    const refreshToken = generateRefreshToken(payload);
-
-    // Save refresh token to database
-    const expiresAt = parseTokenExpiry(REFRESH_TOKEN_EXPIRE);
-
-    await TokenService.saveRefreshToken({
-      userId: newUser._id,
-      refreshToken,
-      expiresAt,
+      role: newUser.role,
+      key: "user",
     });
-
-    return {
-      user: {
-        id: newUser._id,
-        name: newUser.name,
-        email: newUser.email,
-        role: newUser.role,
-      },
-      tokens: {
-        accessToken,
-        refreshToken,
-      },
-    };
   };
 
   /**
@@ -171,38 +372,12 @@ class AccessService {
       address,
     });
 
-    // Create token payload
-    const payload = {
-      id: newShop._id,
-      email: newShop.email,
-      role: "shop",
+    return AccessService.buildAuthResponse({
+      account: newShop,
       accountType: "shop",
-    };
-
-    // Generate tokens
-    const accessToken = generateAccessToken(payload);
-    const refreshToken = generateRefreshToken(payload);
-
-    // Save refresh token to database
-    const expiresAt = parseTokenExpiry(REFRESH_TOKEN_EXPIRE);
-
-    await TokenService.saveRefreshToken({
-      userId: newShop._id,
-      refreshToken,
-      expiresAt,
+      role: "shop",
+      key: "shop",
     });
-
-    return {
-      shop: {
-        id: newShop._id,
-        name: newShop.name,
-        email: newShop.email,
-      },
-      tokens: {
-        accessToken,
-        refreshToken,
-      },
-    };
   };
 
   static login = async ({ email, password, accountType = "user" }) => {
@@ -282,39 +457,12 @@ class AccessService {
       role,
     });
 
-    // Create token payload
-    const payload = {
-      id: account._id,
-      email: account.email,
-      role: role,
+    return AccessService.buildAuthResponse({
+      account,
       accountType: normalizedAccountType,
-    };
-
-    // Generate tokens
-    const accessToken = generateAccessToken(payload);
-    const refreshToken = generateRefreshToken(payload);
-
-    // Save refresh token to database
-    const expiresAt = parseTokenExpiry(REFRESH_TOKEN_EXPIRE);
-
-    await TokenService.saveRefreshToken({
-      userId: account._id,
-      refreshToken,
-      expiresAt,
+      role,
+      key: normalizedAccountType,
     });
-
-    return {
-      [normalizedAccountType]: {
-        id: account._id,
-        name: account.name,
-        email: account.email,
-        role: role,
-      },
-      tokens: {
-        accessToken,
-        refreshToken,
-      },
-    };
   };
 
   // Logout - blacklist current token

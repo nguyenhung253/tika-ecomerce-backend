@@ -1,5 +1,5 @@
-const inventory = require("../inventory.model");
-const mongoose = require("mongoose");
+const { inventory } = require("../inventory.model");
+
 const insertInventory = async ({
   productId,
   shopId,

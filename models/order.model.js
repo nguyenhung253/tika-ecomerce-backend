@@ -28,13 +28,26 @@ const orderSchema = new Schema(
     order_payment: {
       method: {
         type: String,
-        enum: ["COD", "credit_card", "paypal", "bank_transfer"],
+        enum: ["COD", "credit_card", "paypal", "bank_transfer", "vnpay"],
         default: "COD",
       },
       status: {
         type: String,
         enum: ["pending", "paid", "failed", "refunded"],
         default: "pending",
+      },
+      provider: {
+        type: String,
+        enum: ["internal", "mock_gateway", "vnpay"],
+        default: "internal",
+      },
+      transactionRef: {
+        type: String,
+        default: "",
+      },
+      paidAt: {
+        type: Date,
+        default: null,
       },
     },
     order_products: {

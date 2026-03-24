@@ -44,6 +44,10 @@ jest.mock("../../helpers/audit.helper", () => ({
   logAuditEvent: jest.fn(),
 }));
 
+jest.mock("../../utils/httpClient", () => ({
+  sendHttpRequest: jest.fn(),
+}));
+
 const AccessService = require("../../services/access.service");
 const User = require("../../models/user.model");
 const bcrypt = require("bcrypt");
@@ -116,5 +120,32 @@ describe("AccessService.login", () => {
       "auth.login.success",
       expect.objectContaining({ userId: "u1", accountType: "user" }),
     );
+  });
+});
+
+describe("AccessService Google OAuth", () => {
+  const originalEnvironment = process.env;
+
+  beforeEach(() => {
+    process.env = {
+      ...originalEnvironment,
+      GOOGLE_OAUTH_CLIENT_ID: "google-client-id",
+      GOOGLE_OAUTH_CLIENT_SECRET: "google-client-secret",
+      GOOGLE_OAUTH_REDIRECT_URI:
+        "http://localhost:4953/api/v1/auth/google/callback",
+    };
+  });
+
+  afterAll(() => {
+    process.env = originalEnvironment;
+  });
+
+  it("generates a Google authorization URL and stores state in cache", async () => {
+    const result = await AccessService.getGoogleAuthorizationUrl();
+
+    expect(result.authorizationUrl).toContain("accounts.google.com");
+    expect(result.authorizationUrl).toContain("client_id=google-client-id");
+    expect(setCache).toHaveBeenCalledTimes(1);
+    expect(result.state).toBeTruthy();
   });
 });

@@ -50,6 +50,7 @@ const CacheKeys = {
       `auth:forgot-password:verified:${accountType}:${email}`,
     forgotPasswordOtpVerifyBlock: (accountType, email) =>
       `auth:forgot-password:otp-verify-block:${accountType}:${email}`,
+    googleOAuthState: (state) => `auth:google-oauth:state:${state}`,
   },
 
   discount: {

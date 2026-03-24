@@ -6,10 +6,10 @@ const asyncHandler = require("../../helpers/asyncHandler");
 const { authentication, requireRole } = require("../../auth/authentication");
 const router = express.Router();
 
-router.get("", asyncHandler(CommentController.getAllCommentsAllComments));
+router.get("", asyncHandler(CommentController.getAllComments));
 router.get(
   "/:productId",
-  asyncHandler(CommentController.getCommentsByProductIdCommentByProductId),
+  asyncHandler(CommentController.getCommentsByProductId),
 );
 
 // Protected routes - require authentication
@@ -18,20 +18,20 @@ router.use(authentication);
 // User only routes
 router.post(
   "",
-  requireRole("user"),
+  requireRole("customer", "admin"),
 
   asyncHandler(CommentController.createComment),
 );
 
 router.patch(
   "/:commentId",
-  requireRole("user"),
+  requireRole("customer", "admin"),
   asyncHandler(CommentController.updateComment),
 );
 
 router.delete(
   "/:commentId",
-  requireRole("user"),
+  requireRole("customer", "admin"),
   asyncHandler(CommentController.deleteComment),
 );
 

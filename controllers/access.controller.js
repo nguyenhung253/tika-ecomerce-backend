@@ -54,6 +54,24 @@ class AccessController {
     }).send(res);
   });
 
+  static getGoogleAuthorizationUrl = asyncHandler(async (req, res, next) => {
+    const result = await AccessService.getGoogleAuthorizationUrl();
+    return new SuccessResponse({
+      message: "Google authorization URL generated successfully",
+      data: result,
+    }).send(res);
+  });
+
+  static googleCallback = asyncHandler(async (req, res, next) => {
+    const { code, state } = req.query;
+    const result = await AccessService.loginWithGoogle({ code, state });
+
+    return new SuccessResponse({
+      message: "Google login successful",
+      data: result,
+    }).send(res);
+  });
+
   static logout = asyncHandler(async (req, res, next) => {
     const refreshToken = req.refreshToken;
 

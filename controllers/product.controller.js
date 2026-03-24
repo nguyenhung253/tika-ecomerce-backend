@@ -71,6 +71,7 @@ class ProductController {
       message: "Get list Draft success",
       data: await ProductFactory.findAllDraftForShop({
         product_shop: req.user.id,
+        query: req.query,
       }),
     }).send(res);
   });
@@ -83,6 +84,7 @@ class ProductController {
       message: "Get list Published success",
       data: await ProductFactory.findAllPublishedForShop({
         product_shop: req.user.id,
+        query: req.query,
       }),
     }).send(res);
   });

@@ -26,6 +26,8 @@ router.post(
   loginEmailRateLimit,
   AccessController.login,
 );
+router.get("/google/authorization-url", AccessController.getGoogleAuthorizationUrl);
+router.get("/google/callback", AccessController.googleCallback);
 
 // Protected routes - require authentication
 router.post("/logout", verifyRefreshTokenMiddleware, AccessController.logout);

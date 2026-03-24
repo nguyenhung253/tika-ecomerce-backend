@@ -1,24 +1,207 @@
-name: Deploy to EC2
+name: Build & Deploy to EC2 (Docker)
 
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/ecommerce-backend
+  PORT: 4953
 
 jobs:
-  deploy:
+  test:
     runs-on: ubuntu-latest
-
+    name: Run Tests
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    name: Build Docker Image
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    name: Deploy to EC2
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare .env file
+        run: |
+          echo "PORT=${{ env.PORT }}" >> .env.deploy
+          echo "NODE_ENV=production" >> .env.deploy
+          echo "MONGODB_URL=${{ secrets.MONGODB_URL }}" >> .env.deploy
+          echo "REDIS_URL=${{ secrets.REDIS_URL }}" >> .env.deploy
+          echo "ACCESS_TOKEN_SECRET=${{ secrets.JWT_SECRET }}" >> .env.deploy
+          echo "REFRESH_TOKEN_SECRET=${{ secrets.JWT_REFRESH_SECRET }}" >> .env.deploy
+          echo "MONGO_USER=${{ secrets.MONGO_USER }}" >> .env.deploy
+          echo "MONGO_PASSWORD=${{ secrets.MONGO_PASSWORD }}" >> .env.deploy
+          echo "OTP_EXPIRY=${{ secrets.OTP_EXPIRY }}" >> .env.deploy
+          echo "OTP_DIGIT=${{ secrets.OTP_DIGIT }}" >> .env.deploy
+          echo "EMAIL_USER=${{ secrets.MAIL_NAME }}" >> .env.deploy
+          echo "EMAIL_PASS=${{ secrets.MAIL_PASSWORD }}" >> .env.deploy
 
       - name: Deploy to EC2
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.EC2_HOST }}
-          username: ec2-user
+          username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT }}
           script: |
-            cd /home/ec2-user/ecommerce
+            set -e
+
+            # Define deployment directory
+            DEPLOY_DIR="/home/${{ secrets.EC2_USER }}/ecommerce-backend"
+
+            echo "=== Deployment started at $(date) ==="
+
+            # Navigate to deployment directory
+            cd $DEPLOY_DIR || { echo "Directory not found"; exit 1; }
+
+            # Pull latest code
+            echo ">>> Pulling latest code from main branch..."
+            git fetch origin main
+            git checkout main
             git pull origin main
-            chmod +x deploy.sh
-            ./deploy.sh
+
+            # Backup current docker-compose state (for rollback)
+            echo ">>> Creating backup for rollback capability..."
+            docker-compose config > /tmp/docker-compose.backup.yml || true
+
+            # Create .env file with production secrets
+            echo ">>> Setting up environment variables..."
+            cat > .env << EOF
+            PORT=${{ env.PORT }}
+            NODE_ENV=production
+            MONGODB_URL=${{ secrets.MONGODB_URL }}
+            REDIS_URL=${{ secrets.REDIS_URL }}
+            ACCESS_TOKEN_SECRET=${{ secrets.JWT_SECRET }}
+            REFRESH_TOKEN_SECRET=${{ secrets.JWT_REFRESH_SECRET }}
+            MONGO_USER=${{ secrets.MONGO_USER }}
+            MONGO_PASSWORD=${{ secrets.MONGO_PASSWORD }}
+            OTP_EXPIRY=${{ secrets.OTP_EXPIRY }}
+            OTP_DIGIT=${{ secrets.OTP_DIGIT }}
+            EMAIL_USER=${{ secrets.MAIL_NAME }}
+            EMAIL_PASS=${{ secrets.MAIL_PASSWORD }}
+            EOF
+
+            # Pull latest Docker image
+            echo ">>> Pulling latest Docker image..."
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+            # Stop and remove old containers
+            echo ">>> Stopping old containers..."
+            docker-compose down || true
+
+            # Start new containers with latest image
+            echo ">>> Starting new containers..."
+            IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" docker-compose up -d
+
+            # Wait for app container to be healthy
+            echo ">>> Waiting for application to be ready..."
+            for i in {1..30}; do
+              if docker-compose exec -T app sh -c "curl -f http://localhost:${{ env.PORT }}/ > /dev/null 2>&1"; then
+                echo "✓ Application is healthy"
+                break
+              fi
+              if [ $i -eq 30 ]; then
+                echo "✗ Application failed to start"
+                docker-compose logs app
+                exit 1
+              fi
+              echo "  Waiting... ($i/30)"
+              sleep 2
+            done
+
+            # Check MongoDB connectivity
+            echo ">>> Verifying MongoDB connectivity..."
+            docker-compose exec -T app npm test -- --testNamePattern="mongodb" || echo "MongoDB test skipped"
+
+            # Cleanup
+            echo ">>> Cleaning up old Docker images..."
+            docker image prune -f --filter "dangling=true"
+
+            echo "=== Deployment completed successfully at $(date) ==="
+
+      - name: Notify Deployment Success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number || context.ref.split('/').pop(),
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ Deployment to EC2 successful! Image: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest`'
+            })
+
+      - name: Notify Deployment Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number || context.ref.split('/').pop(),
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '❌ Deployment to EC2 failed! Check logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+            })

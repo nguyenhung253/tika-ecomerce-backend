@@ -3,6 +3,10 @@
 const asyncHandler = require("../helpers/asyncHandler");
 const { TooManyRequestsError } = require("../helpers/error.response");
 const { getRedis } = require("../configs/init.redis");
+const {
+  GLOBAL_API_RATE_LIMIT_MAX_REQUESTS,
+  GLOBAL_API_RATE_LIMIT_WINDOW_SECONDS,
+} = require("../configs/auth.config");
 
 const getClientIpAddress = (req) => {
   const forwardedForHeader = req.headers["x-forwarded-for"];
@@ -29,6 +33,24 @@ const getNormalizedEmailFromBody = (req) => {
   }
 
   return String(req.body.email).trim().toLowerCase();
+};
+
+const getHeaderValue = (headers, headerName) => {
+  const rawValue = headers?.[headerName];
+  if (!rawValue) {
+    return "";
+  }
+
+  return String(rawValue).trim();
+};
+
+const getGlobalApiIdentifier = (req) => {
+  const ipAddress = getClientIpAddress(req);
+  const apiKey = getHeaderValue(req.headers, "x-api-key") || "anonymous-key";
+  const clientId =
+    getHeaderValue(req.headers, "x-client-id") || "anonymous-client";
+
+  return `${ipAddress}:${apiKey}:${clientId}`;
 };
 
 const getIdentifierFromBody = (req) => {
@@ -158,7 +180,16 @@ const otpVerifyRateLimit = createRateLimiter({
   keyGenerator: getIdentifierFromBody,
 });
 
+const globalApiRateLimit = createRateLimiter({
+  keyPrefix: "api:global",
+  windowSeconds: GLOBAL_API_RATE_LIMIT_WINDOW_SECONDS,
+  maxRequests: GLOBAL_API_RATE_LIMIT_MAX_REQUESTS,
+  message: "Global API rate limit exceeded",
+  keyGenerator: getGlobalApiIdentifier,
+});
+
 module.exports = {
+  globalApiRateLimit,
   loginIpRateLimit,
   loginEmailRateLimit,
   registerIpRateLimit,

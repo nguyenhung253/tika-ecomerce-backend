@@ -38,6 +38,13 @@ jest.mock("../../helpers/audit.helper", () => ({
   logAuditEvent: jest.fn(),
 }));
 
+jest.mock("../../services/notification.service", () => ({
+  NotificationService: {
+    notifyOrderCreated: jest.fn(),
+    notifyOrderStatusUpdated: jest.fn(),
+  },
+}));
+
 const CheckoutService = require("../../services/checkout.service");
 const { order } = require("../../models/order.model");
 const { logAuditEvent } = require("../../helpers/audit.helper");

@@ -43,6 +43,20 @@ const userSchema = new mongoose.Schema(
       enum: ["customer", "admin"],
       default: "customer",
     },
+    auth_provider: {
+      type: String,
+      enum: ["local", "google"],
+      default: "local",
+    },
+    google_id: {
+      type: String,
+      default: "",
+      index: true,
+    },
+    oauth_profile_picture: {
+      type: String,
+      default: "",
+    },
   },
   { timestamps: true, collection: COLLECTION_NAME },
 );

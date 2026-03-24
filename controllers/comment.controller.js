@@ -8,35 +8,48 @@ class CommentController {
   static createComment = asyncHandler(async (req, res, next) => {
     return new SuccessResponse({
       message: "Create Comment success",
-      data: await CommentService.createComment(req.body),
+      data: await CommentService.createComment({
+        ...req.body,
+        userId: req.user.id,
+      }),
     }).send(res);
   });
 
   static getCommentsByProductId = asyncHandler(async (req, res, next) => {
     return new SuccessResponse({
       message: "Get Comments By Product Id success",
-      data: await CommentService.getCommentsByProductId(req.params.productId),
+      data: await CommentService.getCommentsByProductId({
+        productId: req.params.productId,
+        query: req.query,
+      }),
     }).send(res);
   });
 
   static updateComment = asyncHandler(async (req, res, next) => {
     return new SuccessResponse({
       message: "Update Comment success",
-      data: await CommentService.updateComment(req.params.commentId, req.body),
+      data: await CommentService.updateComment(
+        req.params.commentId,
+        req.user.id,
+        req.body,
+      ),
     }).send(res);
   });
 
   static deleteComment = asyncHandler(async (req, res, next) => {
     return new SuccessResponse({
       message: "Delete Comment success",
-      data: await CommentService.deleteComment(req.params.commentId),
+      data: await CommentService.deleteComment(
+        req.params.commentId,
+        req.user.id,
+      ),
     }).send(res);
   });
 
   static getAllComments = asyncHandler(async (req, res, next) => {
     return new SuccessResponse({
       message: "Get All Comments success",
-      data: await CommentService.getAllComments(),
+      data: await CommentService.getAllComments(req.query),
     }).send(res);
   });
 }

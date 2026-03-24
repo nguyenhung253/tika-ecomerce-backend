@@ -3,6 +3,14 @@
 const { getPositiveIntegerFromEnv } = require("../helpers/env.helper");
 
 module.exports = {
+  GLOBAL_API_RATE_LIMIT_MAX_REQUESTS: getPositiveIntegerFromEnv(
+    "GLOBAL_API_RATE_LIMIT_MAX_REQUESTS",
+    300,
+  ),
+  GLOBAL_API_RATE_LIMIT_WINDOW_SECONDS: getPositiveIntegerFromEnv(
+    "GLOBAL_API_RATE_LIMIT_WINDOW_SECONDS",
+    60,
+  ),
   LOGIN_FAIL_MAX_ATTEMPTS: getPositiveIntegerFromEnv(
     "LOGIN_FAIL_MAX_ATTEMPTS",
     5,

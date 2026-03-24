@@ -50,6 +50,10 @@ ecosystem.config.js
 # Test files
 request.http
 
+DEPLOYMENT_CHECKLIST.md 
+DOCKER_CICD_README.md 
+PIPELINE_ARCHITECTURE.md
+
 # Setup scripts (already in EC2)
 
 .kiro

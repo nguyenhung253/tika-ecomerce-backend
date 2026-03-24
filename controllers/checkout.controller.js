@@ -3,6 +3,7 @@
 const { SuccessResponse, CREATED } = require("../helpers/success.response");
 const CheckoutService = require("../services/checkout.service");
 const asyncHandler = require("../helpers/asyncHandler");
+const { getClientIpAddress } = require("../utils/vnpay");
 
 class CheckoutController {
   /**
@@ -22,11 +23,17 @@ class CheckoutController {
    * Order by user - Đặt hàng
    */
   static orderByUser = asyncHandler(async (req, res, next) => {
+    const normalizedPaymentInput = {
+      ...(req.body.user_payment || {}),
+      clientIpAddress: getClientIpAddress(req),
+    };
+
     return new CREATED({
       message: "Order created successfully",
       data: await CheckoutService.orderByUser({
         ...req.body,
         userId: req.user.id,
+        user_payment: normalizedPaymentInput,
         idempotencyKey: req.headers["x-idempotency-key"],
       }),
     }).send(res);

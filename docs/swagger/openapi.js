@@ -28,6 +28,8 @@ const openapiSpec = {
     { name: "Cart" },
     { name: "Discount" },
     { name: "Comment" },
+    { name: "Payment" },
+    { name: "Notification" },
   ],
   components: {
     securitySchemes: {
@@ -156,6 +158,15 @@ const openapiSpec = {
           status: {
             type: "string",
             enum: ["pending", "confirmed", "shipped", "delivered", "cancelled"],
+          },
+        },
+      },
+      MockPaymentConfirmRequest: {
+        type: "object",
+        properties: {
+          transactionRef: {
+            type: "string",
+            example: "PAY-order-1234-abcd1234",
           },
         },
       },
@@ -805,6 +816,78 @@ const openapiSpec = {
         ],
         responses: {
           200: { description: "Delete comment success" },
+        },
+      },
+    },
+    "/api/v1/payment/orders/{orderId}": {
+      get: {
+        tags: ["Payment"],
+        summary: "Get payment detail by order",
+        security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
+        parameters: [
+          {
+            in: "path",
+            name: "orderId",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          200: { description: "Payment detail" },
+        },
+      },
+    },
+    "/api/v1/payment/orders/{orderId}/confirm": {
+      post: {
+        tags: ["Payment"],
+        summary: "Confirm mock payment for non-COD orders",
+        security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
+        parameters: [
+          {
+            in: "path",
+            name: "orderId",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        requestBody: {
+          required: false,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/MockPaymentConfirmRequest" },
+            },
+          },
+        },
+        responses: {
+          200: { description: "Payment confirmed" },
+        },
+      },
+    },
+    "/api/v1/notification": {
+      get: {
+        tags: ["Notification"],
+        summary: "List current actor notifications",
+        security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
+        responses: {
+          200: { description: "Notification list" },
+        },
+      },
+    },
+    "/api/v1/notification/{notificationId}/read": {
+      patch: {
+        tags: ["Notification"],
+        summary: "Mark a notification as read",
+        security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
+        parameters: [
+          {
+            in: "path",
+            name: "notificationId",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          200: { description: "Notification updated" },
         },
       },
     },

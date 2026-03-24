@@ -40,9 +40,6 @@ app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Database connection
-require("./configs/init.mongodb");
-
 // API documentation
 app.get("/api-docs.json", (req, res) => {
   res.status(200).json(openapiSpec);

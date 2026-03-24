@@ -8,6 +8,8 @@ const {
 const { findCartById } = require("../models/repositories/cart.repo");
 const { checkProductByServer } = require("../models/repositories/product.repo");
 const DiscountService = require("./discount.service");
+const PaymentService = require("./payment.service");
+const { NotificationService } = require("./notification.service");
 const { order } = require("../models/order.model");
 const { cart } = require("../models/cart.model");
 const { inventory } = require("../models/inventory.model");
@@ -51,6 +53,81 @@ const CHECKOUT_ERROR_CODES = {
  */
 
 class CheckoutService {
+  static buildPaginationInput(query = {}, defaultLimit = 20, maxLimit = 100) {
+    const page = Math.max(parseInt(query.page, 10) || 1, 1);
+    const rawLimit = parseInt(query.limit, 10) || defaultLimit;
+    const limit = Math.min(Math.max(rawLimit, 1), maxLimit);
+    return { page, limit };
+  }
+
+  static buildSortInput(query = {}, defaultSortBy = "createdAt") {
+    const allowedSortFields = ["createdAt", "updatedAt", "order_status"];
+    const sortByField = allowedSortFields.includes(query.sortBy)
+      ? query.sortBy
+      : defaultSortBy;
+    const order =
+      String(query.order || "desc").toLowerCase() === "asc" ? 1 : -1;
+
+    return {
+      sortByField,
+      order,
+      sortBy: {
+        [sortByField]: order,
+      },
+    };
+  }
+
+  static buildOrderFilter({ userId, query = {} }) {
+    const filter = {
+      order_userId: userId,
+    };
+
+    if (query.status) {
+      filter.order_status = query.status;
+    }
+
+    const minTotal = Number(query.minTotal);
+    const maxTotal = Number(query.maxTotal);
+    if (!Number.isNaN(minTotal) || !Number.isNaN(maxTotal)) {
+      filter["order_checkout.totalCheckout"] = {};
+      if (!Number.isNaN(minTotal)) {
+        filter["order_checkout.totalCheckout"].$gte = minTotal;
+      }
+      if (!Number.isNaN(maxTotal)) {
+        filter["order_checkout.totalCheckout"].$lte = maxTotal;
+      }
+    }
+
+    const fromDate = query.fromDate ? new Date(query.fromDate) : null;
+    const toDate = query.toDate ? new Date(query.toDate) : null;
+    if (
+      (fromDate && !Number.isNaN(fromDate.getTime())) ||
+      (toDate && !Number.isNaN(toDate.getTime()))
+    ) {
+      filter.createdAt = {};
+      if (fromDate && !Number.isNaN(fromDate.getTime())) {
+        filter.createdAt.$gte = fromDate;
+      }
+      if (toDate && !Number.isNaN(toDate.getTime())) {
+        filter.createdAt.$lte = toDate;
+      }
+    }
+
+    return filter;
+  }
+
+  static buildPaginationMeta({ page, limit, totalItems }) {
+    const totalPages = Math.max(Math.ceil(totalItems / limit), 1);
+    return {
+      totalItems,
+      page,
+      limit,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
+    };
+  }
+
   static normalizeIdempotencyKey(idempotencyKey) {
     if (!idempotencyKey) {
       return "";
@@ -263,6 +340,7 @@ class CheckoutService {
     }
 
     const reservedItems = [];
+    let createdOrder = null;
 
     try {
       const { shop_order_ids_new, checkout_order } =
@@ -308,41 +386,69 @@ class CheckoutService {
         });
       }
 
+      const normalizedPayment = PaymentService.buildOrderPaymentSnapshot(
+        user_payment,
+        checkout_order.totalCheckout,
+      );
+
       // Create order
-      const newOrder = await order.create({
+      createdOrder = await order.create({
         order_userId: userId,
         order_checkout: checkout_order,
         order_shipping: user_address,
-        order_payment: user_payment,
+        order_payment: normalizedPayment,
         order_products: shop_order_ids_new,
       });
 
+      const payment = await PaymentService.createPaymentForOrder({
+        orderDoc: createdOrder,
+        userId,
+        paymentInput: user_payment,
+      });
+
       // If order created successfully
-      if (newOrder) {
+      if (createdOrder) {
         // Remove products from cart
         await cart.findByIdAndUpdate(cartId, {
           cart_products: [],
           cart_count_products: 0,
         });
 
+        const responsePayload = {
+          order: createdOrder.toObject(),
+          payment,
+        };
+
         if (idempotencyContext) {
           await setCache(
             idempotencyContext.resultKey,
-            newOrder.toObject(),
+            responsePayload,
             IDEMPOTENCY_RESULT_TTL_SECONDS,
           );
         }
 
+        await NotificationService.notifyOrderCreated({
+          userId,
+          accountType: "user",
+          orderId: String(createdOrder._id),
+          totalCheckout: checkout_order.totalCheckout,
+          paymentMethod: payment?.method || normalizedPayment.method,
+        });
+
         logAuditEvent("order.created", {
-          orderId: String(newOrder._id),
+          orderId: String(createdOrder._id),
           userId: String(userId),
           totalCheckout: checkout_order.totalCheckout,
           paymentMethod: user_payment?.method || "COD",
         });
+
+        return responsePayload;
+      }
+    } catch (error) {
+      if (createdOrder?._id) {
+        await order.findByIdAndDelete(createdOrder._id);
       }
 
-      return newOrder;
-    } catch (error) {
       if (reservedItems.length > 0) {
         // Roll back only items that were actually reserved successfully.
         await CheckoutService.restoreReservedInventory(reservedItems);
@@ -393,16 +499,50 @@ class CheckoutService {
   /**
    * Query orders by user
    */
-  static async getOrdersByUser({ userId, limit = 50, page = 1 }) {
+  static async getOrdersByUser({ userId, ...query }) {
+    const { page, limit } = CheckoutService.buildPaginationInput(
+      query,
+      20,
+      100,
+    );
+    const {
+      sortByField,
+      order: sortOrder,
+      sortBy,
+    } = CheckoutService.buildSortInput(query, "createdAt");
+    const filter = CheckoutService.buildOrderFilter({ userId, query });
     const skip = (page - 1) * limit;
-    const orders = await order
-      .find({ order_userId: userId })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
 
-    return orders;
+    const [items, totalItems] = await Promise.all([
+      order.find(filter).sort(sortBy).skip(skip).limit(limit).lean(),
+      order.countDocuments(filter),
+    ]);
+
+    return {
+      items,
+      pagination: CheckoutService.buildPaginationMeta({
+        page,
+        limit,
+        totalItems,
+      }),
+      sort: {
+        sortBy: sortByField,
+        order: sortOrder === 1 ? "asc" : "desc",
+      },
+      filters: {
+        status: query.status || "",
+        minTotal:
+          query.minTotal !== undefined
+            ? Number(query.minTotal) || 0
+            : undefined,
+        maxTotal:
+          query.maxTotal !== undefined
+            ? Number(query.maxTotal) || 0
+            : undefined,
+        fromDate: query.fromDate || "",
+        toDate: query.toDate || "",
+      },
+    };
   }
 
   /**
@@ -472,6 +612,13 @@ class CheckoutService {
     // Update order status
     foundOrder.order_status = "cancelled";
     await foundOrder.save();
+
+    await NotificationService.notifyOrderStatusUpdated({
+      userId,
+      accountType: "user",
+      orderId: String(foundOrder._id),
+      status: "cancelled",
+    });
 
     return foundOrder;
   }
@@ -557,6 +704,13 @@ class CheckoutService {
 
     foundOrder.order_status = status;
     await foundOrder.save();
+
+    await NotificationService.notifyOrderStatusUpdated({
+      userId: foundOrder.order_userId,
+      accountType: "user",
+      orderId: String(foundOrder._id),
+      status,
+    });
 
     return foundOrder;
   }
