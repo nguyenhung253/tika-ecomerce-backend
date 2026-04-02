@@ -24,11 +24,13 @@ const deleteByPattern = async (pattern) => {
   const client = getRedis();
   const keys = [];
 
-  for await (const key of client.scanIterator({
+  for await (const batchKeys of client.scanIterator({
     MATCH: pattern,
     COUNT: 100,
   })) {
-    keys.push(key);
+    if (Array.isArray(batchKeys)) {
+      keys.push(...batchKeys);
+    }
   }
 
   if (keys.length) {
