@@ -11,7 +11,7 @@ Product (Base class - Chứa logic chung)
 "use strict";
 const { BadRequestError, NotFoundError } = require("../helpers/error.response");
 const { invalidateProductCache } = require("../helpers/cache");
-const { clothing, product, electronic } = require("../models/product.model");
+const { clothing, product, electronic, book } = require("../models/product.model");
 const { insertInventory } = require("../models/repositories/inventory.repo");
 const productRepo = require("../models/repositories/product.repo");
 const {
@@ -111,6 +111,8 @@ class ProductFactory {
         return new Electronic(payload).createProduct();
       case "Clothing":
         return new Clothing(payload).createProduct();
+      case "Books":
+        return new Book(payload).createProduct();
       default:
         throw new BadRequestError(`Invalid Product Types ${type}`);
     }
@@ -305,6 +307,11 @@ class ProductFactory {
           productId,
           productShop,
         });
+      case "Books":
+        return new Book(payload).updateProduct({
+          productId,
+          productShop,
+        });
       default:
         throw new BadRequestError(`Invalid Product Types ${type}`);
     }
@@ -467,4 +474,44 @@ class Electronic extends Product {
   }
 }
 
-module.exports = { Product, ProductFactory, Electronic, Clothing };
+class Book extends Product {
+  async createProduct() {
+    const newBook = await book.create({
+      ...this.product_attribute,
+      product_shop: this.product_shop,
+    });
+    if (!newBook) throw new BadRequestError("Create new Book error");
+
+    const newProduct = await super.createProduct(newBook._id);
+    if (!newProduct) throw new BadRequestError("Create new Product error");
+    return newProduct;
+  }
+
+  async updateProduct({ productId, productShop }) {
+    const objectParams = this;
+
+    if (objectParams.product_attribute) {
+      const updatedBook = await book.findOneAndUpdate(
+        {
+          _id: productId,
+          product_shop: productShop,
+        },
+        objectParams.product_attribute,
+        { new: true },
+      );
+
+      if (!updatedBook) {
+        throw new NotFoundError("Product not found or access denied");
+      }
+    }
+
+    const updateProduct = await super.updateProduct({
+      productId,
+      productShop,
+      bodyUpdate: objectParams,
+    });
+    return updateProduct;
+  }
+}
+
+module.exports = { Product, ProductFactory, Electronic, Clothing, Book };
